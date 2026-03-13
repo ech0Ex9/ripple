@@ -1,9 +1,11 @@
 package org.ripple.endpoint.ui.toolwindow
 
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
@@ -17,11 +19,15 @@ import org.ripple.endpoint.core.model.TypeStats
 import org.ripple.endpoint.detector.api.model.ChangedFile
 import org.ripple.endpoint.detector.api.model.EntryType
 import org.ripple.endpoint.detector.api.model.ImpactLevel
+import org.ripple.endpoint.detector.custom.CustomRuleDetector
 import org.ripple.endpoint.detector.grpc.GrpcDetector
 import org.ripple.endpoint.detector.mq.MqDetector
 import org.ripple.endpoint.detector.scheduled.ScheduledDetector
 import org.ripple.endpoint.detector.spring.SpringMvcDetector
+import org.ripple.endpoint.ui.config.DetectorRuleConfig
 import org.ripple.endpoint.ui.dialog.BranchDiffDialog
+import org.ripple.endpoint.ui.dialog.RuleConfigDialog
+import org.ripple.endpoint.ui.dialog.RuleWizardDialog
 import org.ripple.endpoint.ui.notification.EndpointNotifier
 import java.awt.BorderLayout
 import java.awt.Component
@@ -41,7 +47,7 @@ import javax.swing.tree.DefaultTreeModel
 class ResultTreePanel(private val project: Project) : JPanel(BorderLayout()) {
     
     private val tree: Tree
-    private val rootNode = DefaultMutableTreeNode("点击「检测变更」或「分支比对」开始")
+    private val rootNode = DefaultMutableTreeNode("点击「工作区检测变更」或「分支比对」开始")
     private val model = DefaultTreeModel(rootNode)
     private val summaryLabel = JBLabel(" ")
     
@@ -56,7 +62,7 @@ class ResultTreePanel(private val project: Project) : JPanel(BorderLayout()) {
         }
         
         val toolbar = JPanel(FlowLayout(FlowLayout.LEFT)).apply {
-            add(JButton("检测变更").apply {
+            add(JButton("工作区检测变更").apply {
                 toolTipText = "检测当前工作区的变更"
                 addActionListener { performWorkingChangesDetection() }
             })
@@ -66,6 +72,10 @@ class ResultTreePanel(private val project: Project) : JPanel(BorderLayout()) {
             })
             add(JButton("生成报告").apply {
                 addActionListener { generateReport() }
+            })
+            add(JButton("⚙ 配置规则").apply {
+                toolTipText = "配置自定义 RPC 框架检测规则"
+                addActionListener { showRuleConfigDialog() }
             })
         }
         
@@ -198,11 +208,14 @@ class ResultTreePanel(private val project: Project) : JPanel(BorderLayout()) {
     }
     
     private fun detectEntries(projectPath: String, changedFiles: List<ChangedFile>): List<DetectionResult> {
+        val customRules = DetectorRuleConfig.getInstance().rules
+        
         val detectors = listOf(
             SpringMvcDetector(),
             GrpcDetector(),
             MqDetector(),
-            ScheduledDetector()
+            ScheduledDetector(),
+            CustomRuleDetector(customRules)
         )
         
         val engine = DefaultDetectionEngine(detectors)
@@ -255,11 +268,93 @@ class ResultTreePanel(private val project: Project) : JPanel(BorderLayout()) {
             val content = buildMarkdownReport()
             Files.writeString(reportPath, content)
             
-            showMessage("报告已生成: ${reportPath.fileName}")
             EndpointNotifier.notifyInfo(project, "报告已保存到: $reportPath")
+            
+            val openFile = javax.swing.JOptionPane.showConfirmDialog(
+                this,
+                "报告已生成: ${reportPath.fileName}\n\n是否打开文件?",
+                "报告生成完成",
+                javax.swing.JOptionPane.YES_NO_OPTION,
+                javax.swing.JOptionPane.QUESTION_MESSAGE
+            )
+            
+            if (openFile == javax.swing.JOptionPane.YES_OPTION) {
+                openFileInEditor(reportPath.toString())
+            }
         } catch (e: Exception) {
             EndpointNotifier.notifyError(project, "生成报告失败: ${e.message}")
         }
+    }
+    
+    private fun openFileInEditor(filePath: String) {
+        val virtualFile = LocalFileSystem.getInstance().findFileByPath(filePath)
+        if (virtualFile != null) {
+            FileEditorManager.getInstance(project).openFile(virtualFile, true)
+        }
+    }
+    
+    private fun showRuleConfigDialog() {
+        val options = arrayOf("添加规则", "向导创建", "管理规则", "取消")
+        val choice = javax.swing.JOptionPane.showOptionDialog(
+            this,
+            "选择操作:",
+            "配置检测规则",
+            javax.swing.JOptionPane.DEFAULT_OPTION,
+            javax.swing.JOptionPane.PLAIN_MESSAGE,
+            null,
+            options,
+            options[0]
+        )
+        
+        when (choice) {
+            0 -> {
+                val rule = RuleConfigDialog.show(project)
+                if (rule != null) {
+                    DetectorRuleConfig.getInstance().addRule(rule)
+                    EndpointNotifier.notifyInfo(project, "规则已添加: ${rule.name}")
+                }
+            }
+            1 -> {
+                val rule = RuleWizardDialog.show(project)
+                if (rule != null) {
+                    DetectorRuleConfig.getInstance().addRule(rule)
+                    EndpointNotifier.notifyInfo(project, "规则已添加: ${rule.name}")
+                }
+            }
+            2 -> {
+                com.intellij.ide.util.PropertiesComponent.getInstance(project)
+                showRuleListDialog()
+            }
+        }
+    }
+    
+    private fun showRuleListDialog() {
+        val rules = DetectorRuleConfig.getInstance().rules
+        if (rules.isEmpty()) {
+            javax.swing.JOptionPane.showMessageDialog(
+                this,
+                "暂无规则，请添加新规则",
+                "规则列表",
+                javax.swing.JOptionPane.INFORMATION_MESSAGE
+            )
+            return
+        }
+        
+        val ruleNames = rules.map { 
+            val status = if (it.enabled) "✓" else "✗"
+            "$status ${it.name}"
+        }.toTypedArray()
+        
+        val selected = javax.swing.JOptionPane.showOptionDialog(
+            this,
+            ruleNames.joinToString("\n"),
+            "已配置的规则 (${rules.size})",
+            javax.swing.JOptionPane.DEFAULT_OPTION,
+            javax.swing.JOptionPane.PLAIN_MESSAGE,
+            null,
+            arrayOf("确定"),
+            "确定"
+        )
     }
     
     private fun buildMarkdownReport(): String {

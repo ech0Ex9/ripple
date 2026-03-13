@@ -11,6 +11,7 @@ include(
     "detectors:grpc",
     "detectors:mq",
     "detectors:scheduled",
+    "detectors:custom",
     "ui",
     "report",
     "plugin",

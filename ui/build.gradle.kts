@@ -14,6 +14,7 @@ dependencies {
     implementation(project(":detectors:grpc"))
     implementation(project(":detectors:mq"))
     implementation(project(":detectors:scheduled"))
+    implementation(project(":detectors:custom"))
     implementation(Libs.Kotlin.STDLIB)
     implementation(Libs.Kotlin.COROUTINES)
 }
