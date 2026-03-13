@@ -158,11 +158,17 @@ class DefaultGitChangeResolver : GitChangeResolver {
         val trimmed = line.trim()
         
         if (trimmed.isEmpty()) return false
+        
         if (trimmed.startsWith("//")) return false
         if (trimmed.startsWith("/*") || trimmed.startsWith("*") || trimmed.endsWith("*/")) return false
         if (trimmed.matches(Regex("^\\*.*"))) return false
         if (trimmed.startsWith("<!--") || trimmed.endsWith("-->")) return false
         if (trimmed.startsWith("#")) return false
+        
+        if (trimmed.startsWith("import ")) return false
+        if (trimmed.startsWith("package ")) return false
+        
+        if (trimmed == "{" || trimmed == "}") return false
         
         return true
     }
