@@ -7,7 +7,7 @@ import org.ripple.endpoint.core.model.DetectionSummary
 
 object EndpointNotifier {
     
-    private const val NOTIFICATION_GROUP = "Endpoint Detector"
+    private const val NOTIFICATION_GROUP = "Ripple"
     
     fun notifyDetectionStarted(project: Project) {
         notify(project, "流量入口检测中...", NotificationType.INFORMATION)

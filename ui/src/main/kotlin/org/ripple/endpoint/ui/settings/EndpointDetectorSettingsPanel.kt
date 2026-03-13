@@ -6,11 +6,13 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
+import java.awt.BorderLayout
 import java.awt.FlowLayout
 import javax.swing.JButton
 import javax.swing.JPanel
+import javax.swing.JTabbedPane
 
-class EndpointDetectorSettingsPanel(private val project: Project) {
+class EndpointDetectorSettingsPanel(private val project: Project?) {
     
     private val commitCheckEnabled = JBCheckBox("启用 Commit 前检测")
     private val highRiskBlockCommit = JBCheckBox("高风险变更拦截 Commit")
@@ -22,7 +24,22 @@ class EndpointDetectorSettingsPanel(private val project: Project) {
     private var originalReportPath = "flow-detector-report"
     private var originalMaxTraceDepth = "20"
     
+    private val ruleManagementPanel = RuleManagementPanel(project)
+    
     fun createPanel(): JPanel {
+        val tabbedPane = JTabbedPane()
+        
+        tabbedPane.addTab("通用配置", createGeneralPanel())
+        tabbedPane.addTab("自定义规则", ruleManagementPanel)
+        
+        return JPanel(BorderLayout()).apply {
+            add(tabbedPane, BorderLayout.CENTER)
+            border = JBUI.Borders.empty(10)
+            loadSettings()
+        }
+    }
+    
+    private fun createGeneralPanel(): JPanel {
         return FormBuilder.createFormBuilder()
             .addComponent(createTitleLabel("通用配置"))
             .addComponent(commitCheckEnabled)
@@ -33,7 +50,6 @@ class EndpointDetectorSettingsPanel(private val project: Project) {
             .panel
             .also { 
                 it.border = JBUI.Borders.empty(20)
-                loadSettings()
             }
     }
     
@@ -47,15 +63,12 @@ class EndpointDetectorSettingsPanel(private val project: Project) {
         return JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
             add(reportPathField)
             add(JButton("浏览...").apply {
-                addActionListener {
-                    // TODO: File chooser dialog
-                }
+                addActionListener { }
             })
         }
     }
     
     private fun loadSettings() {
-        // Load from config repository
         originalCommitCheckEnabled = true
         originalHighRiskBlockCommit = true
         originalReportPath = "flow-detector-report"
@@ -75,7 +88,7 @@ class EndpointDetectorSettingsPanel(private val project: Project) {
     }
     
     fun apply() {
-        // Save to config repository
+        ruleManagementPanel.applyChanges()
     }
     
     fun reset() {

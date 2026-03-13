@@ -158,11 +158,28 @@ class DefaultGitChangeResolver : GitChangeResolver {
         val trimmed = line.trim()
         
         if (trimmed.isEmpty()) return false
+        
         if (trimmed.startsWith("//")) return false
         if (trimmed.startsWith("/*") || trimmed.startsWith("*") || trimmed.endsWith("*/")) return false
         if (trimmed.matches(Regex("^\\*.*"))) return false
         if (trimmed.startsWith("<!--") || trimmed.endsWith("-->")) return false
         if (trimmed.startsWith("#")) return false
+        
+        if (trimmed.startsWith("import ")) return false
+        if (trimmed.startsWith("package ")) return false
+        
+        if (trimmed == "{" || trimmed == "}") return false
+        if (trimmed == "(" || trimmed == ")") return false
+        if (trimmed == ";") return false
+        if (trimmed == ",") return false
+        
+        if (trimmed == "@Override") return false
+        if (trimmed.matches(Regex("^@SuppressWarnings\\s*\\(.*\\)"))) return false
+        if (trimmed.matches(Regex("^@Deprecated(\\s*\\(.*\\))?"))) return false
+        
+        if (trimmed.matches(Regex(".*serialVersionUID\\s*=\\s*\\d+L?\\s*;?"))) return false
+        
+        if (trimmed.matches(Regex("^[,;\\s]+$"))) return false
         
         return true
     }
