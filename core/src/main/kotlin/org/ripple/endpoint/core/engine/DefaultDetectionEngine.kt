@@ -10,6 +10,8 @@ import org.ripple.endpoint.detector.api.model.ChangedFile
 import org.ripple.endpoint.detector.api.model.EntryType
 import org.ripple.endpoint.detector.api.model.ImpactLevel
 import org.ripple.endpoint.detector.api.model.TrafficEntry
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -54,21 +56,47 @@ class DefaultDetectionEngine(
         
         val dedupedEntries = allEntries.distinctBy { it.id }
         
+        val changedLinesByFile = mutableMapOf<String, Set<Int>>()
+        
         for (entry in dedupedEntries) {
-            val relatedChanges = request.changedFiles.filter { 
-                isRelated(entry, it, request.projectPath) 
+            val changedFile = request.changedFiles.find { it.path == entry.containingFile }
+            
+            if (changedFile == null) continue
+            
+            if (changedFile.changeType == ChangeType.ADD) {
+                results.add(DetectionResult(
+                    entry = entry,
+                    impactLevel = ImpactLevel.MEDIUM,
+                    impactReason = "新增入口",
+                    changedFiles = listOf(changedFile.path)
+                ))
+                continue
             }
             
-            if (relatedChanges.isNotEmpty()) {
-                val impactLevel = analyzeImpact(entry, relatedChanges)
-                val sourceCode = readFile(request.projectPath, entry.containingFile)
-                val impactReason = determineImpactReason(entry, relatedChanges, sourceCode)
+            if (changedFile.changeType == ChangeType.DELETE) {
+                continue
+            }
+            
+            if (!changedLinesByFile.containsKey(entry.containingFile)) {
+                changedLinesByFile[entry.containingFile] = getChangedLines(
+                    request.projectPath, 
+                    entry.containingFile
+                )
+            }
+            
+            val changedLines = changedLinesByFile[entry.containingFile] ?: emptySet()
+            
+            val isAffected = isEntryAffected(entry, changedLines, request.projectPath)
+            
+            if (isAffected) {
+                val impactLevel = analyzeImpact(entry, changedFile)
+                val impactReason = determineImpactReason(entry, changedFile, changedLines)
                 
                 results.add(DetectionResult(
                     entry = entry,
                     impactLevel = impactLevel,
                     impactReason = impactReason,
-                    changedFiles = relatedChanges.map { it.path }
+                    changedFiles = listOf(changedFile.path)
                 ))
             }
         }
@@ -83,6 +111,104 @@ class DefaultDetectionEngine(
         )
     }
     
+    private fun getChangedLines(projectPath: String, filePath: String): Set<Int> {
+        val changedLines = mutableSetOf<Int>()
+        
+        try {
+            val diffOutput = runGitDiff(projectPath, filePath) ?: return emptySet()
+            
+            var currentLine = 0
+            
+            for (line in diffOutput.lines()) {
+                if (line.startsWith("@@")) {
+                    val match = Regex("@@ -\\d+,?\\d* \\+(\\d+)").find(line)
+                    if (match != null) {
+                        currentLine = match.groupValues[1].toIntOrNull() ?: 0
+                    }
+                } else if (line.startsWith("+") && !line.startsWith("+++")) {
+                    if (currentLine > 0) {
+                        changedLines.add(currentLine)
+                    }
+                    currentLine++
+                } else if (line.startsWith("-") && !line.startsWith("---")) {
+                    // Don't increment currentLine for removed lines
+                } else if (!line.startsWith("\\")) {
+                    currentLine++
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
+        
+        return changedLines
+    }
+    
+    private fun runGitDiff(projectPath: String, filePath: String): String? {
+        return try {
+            val process = ProcessBuilder("git", "diff", "-U0", filePath)
+                .directory(Path.of(projectPath).toFile())
+                .redirectErrorStream(true)
+                .start()
+            
+            val output = BufferedReader(InputStreamReader(process.inputStream))
+                .use { it.readText() }
+            
+            val exitCode = process.waitFor()
+            if (exitCode == 0) output else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+    
+    private fun isEntryAffected(entry: TrafficEntry, changedLines: Set<Int>, projectPath: String): Boolean {
+        if (changedLines.isEmpty()) return false
+        
+        val entryLine = entry.line
+        if (entryLine <= 0) return false
+        
+        if (changedLines.contains(entryLine)) return true
+        
+        val sourceCode = readFile(projectPath, entry.containingFile) ?: return false
+        val lines = sourceCode.lines()
+        
+        val methodStartLine = entryLine - 1
+        val methodEndLine = findMethodEndLine(lines, methodStartLine)
+        
+        for (lineNum in changedLines) {
+            if (lineNum >= entryLine && lineNum <= methodEndLine) {
+                return true
+            }
+        }
+        
+        return false
+    }
+    
+    private fun findMethodEndLine(lines: List<String>, startLine: Int): Int {
+        var braceCount = 0
+        var foundOpenBrace = false
+        
+        for (i in startLine until lines.size) {
+            val line = lines[i]
+            
+            for (char in line) {
+                when (char) {
+                    '{' -> {
+                        braceCount++
+                        foundOpenBrace = true
+                    }
+                    '}' -> {
+                        braceCount--
+                        if (foundOpenBrace && braceCount == 0) {
+                            return i + 1
+                        }
+                    }
+                }
+            }
+        }
+        
+        return minOf(startLine + 50, lines.size)
+    }
+    
     private fun readFile(projectPath: String, relativePath: String): String? {
         return try {
             val path = Path.of(projectPath, relativePath)
@@ -92,77 +218,26 @@ class DefaultDetectionEngine(
         }
     }
     
-    private fun isRelated(entry: TrafficEntry, changedFile: ChangedFile, projectPath: String): Boolean {
-        return entry.containingFile == changedFile.path
-    }
-    
-    private fun analyzeImpact(entry: TrafficEntry, changedFiles: List<ChangedFile>): ImpactLevel {
+    private fun analyzeImpact(entry: TrafficEntry, changedFile: ChangedFile): ImpactLevel {
         return when {
-            changedFiles.any { it.changeType == ChangeType.DELETE } -> ImpactLevel.HIGH
-            changedFiles.any { it.changeType == ChangeType.ADD } -> ImpactLevel.MEDIUM
+            changedFile.changeType == ChangeType.DELETE -> ImpactLevel.HIGH
+            changedFile.changeType == ChangeType.ADD -> ImpactLevel.MEDIUM
             else -> ImpactLevel.MEDIUM
         }
     }
     
-    private fun determineImpactReason(entry: TrafficEntry, changedFiles: List<ChangedFile>, sourceCode: String? = null): String {
-        if (changedFiles.any { it.changeType == ChangeType.DELETE }) {
-            return "入口文件被删除"
-        }
-        
-        if (changedFiles.any { it.changeType == ChangeType.ADD }) {
+    private fun determineImpactReason(entry: TrafficEntry, changedFile: ChangedFile, changedLines: Set<Int>): String {
+        if (changedFile.changeType == ChangeType.ADD) {
             return "新增入口"
         }
         
-        if (sourceCode != null) {
-            val hasSignatureChange = analyzeMethodSignatureChanges(sourceCode, entry)
-            if (hasSignatureChange != null) {
-                return hasSignatureChange
-            }
+        val entryLine = entry.line
+        
+        return if (changedLines.contains(entryLine)) {
+            "入口定义被修改"
+        } else {
+            "入口实现逻辑被修改"
         }
-        
-        return "入口实现逻辑被修改"
-    }
-    
-    private fun analyzeMethodSignatureChanges(sourceCode: String, entry: TrafficEntry): String? {
-        val lines = sourceCode.lines()
-        
-        for ((index, line) in lines.withIndex()) {
-            if (line.contains(entry.name) && line.contains("public")) {
-                val signature = extractMethodSignature(line, lines, index)
-                
-                if (signature?.contains("(") == true && signature.contains(")")) {
-                    val paramCount = signature.substringAfter("(").substringBefore(")").count { it == ',' } + 1
-                    if (paramCount > 5) {
-                        return "方法签名变更（参数过多）"
-                    }
-                    
-                    if (signature.contains("Response") || signature.contains("Result")) {
-                        return "返回类型可能变更"
-                    }
-                }
-                break
-            }
-        }
-        return null
-    }
-    
-    private fun extractMethodSignature(startLine: String, allLines: List<String>, startIndex: Int): String? {
-        var signature = startLine.trim()
-        
-        if (signature.endsWith("{") || signature.endsWith(";")) {
-            return signature.substringBeforeLast('{').substringBeforeLast(';').trim()
-        }
-        
-        for (i in startIndex + 1 until minOf(startIndex + 10, allLines.size)) {
-            val line = allLines[i].trim()
-            signature += " " + line
-            
-            if (line.endsWith("{") || line.endsWith(";")) {
-                return signature.substringBeforeLast('{').substringBeforeLast(';').trim()
-            }
-        }
-        
-        return signature
     }
     
     private fun buildSummary(allEntries: List<TrafficEntry>, results: List<DetectionResult>): DetectionSummary {
