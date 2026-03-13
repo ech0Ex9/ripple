@@ -1,0 +1,53 @@
+# 流量入口检测插件配置
+# 将此文件提交到 Git 仓库，团队成员共享配置
+
+version: "1.0"
+
+# 敏感入口定义（高风险）
+sensitivePatterns:
+  - pattern: "**/payment/**"
+    entryTypes: [HTTP, GRPC]
+    reason: "支付相关接口，变更需谨慎"
+    risk: HIGH
+    
+  - pattern: "**/auth/**"
+    entryTypes: [HTTP]
+    reason: "鉴权相关接口"
+    risk: HIGH
+    
+  - pattern: "**/admin/**"
+    reason: "管理后台接口"
+    risk: HIGH
+    
+  - pattern: "**/openapi/**"
+    reason: "对外开放API，需保证兼容性"
+    risk: HIGH
+
+# 忽略规则（不检测/不提示）
+ignoreRules:
+  - pattern: "**/internal/**"
+    reason: "内部API，不对外"
+    
+  - pattern: "**/test/**"
+    reason: "测试代码"
+    
+  - pattern: "**/example/**"
+    reason: "示例代码"
+
+# 检测器预设（覆盖默认配置）
+detectorPresets:
+  HTTP:
+    annotations:
+      - org.springframework.web.bind.annotation.RequestMapping
+      - org.springframework.web.bind.annotation.GetMapping
+      - org.springframework.web.bind.annotation.PostMapping
+      - org.springframework.web.bind.annotation.PutMapping
+      - org.springframework.web.bind.annotation.DeleteMapping
+    basePackages:
+      - com.example.controller
+      - com.example.api
+
+# 风险判定阈值
+riskThresholds:
+  blockCommitOn: [HIGH]
+  notifyOn: [MEDIUM, LOW]

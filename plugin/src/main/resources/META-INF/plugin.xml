@@ -1,0 +1,61 @@
+<idea-plugin>
+    <id>org.ripple.idea-endpoint-detector</id>
+    <name>流量入口检测</name>
+    <vendor>Your Company</vendor>
+    <description>基于 Git 变更自动检测受影响的流量入口</description>
+    
+    <depends>com.intellij.modules.platform</depends>
+    <depends>Git4Idea</depends>
+    <depends>com.intellij.java</depends>
+    
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationConfigurable 
+            parentId="tools"
+            instance="org.ripple.endpoint.ui.settings.EndpointDetectorConfigurable"
+            id="org.ripple.endpoint.EndpointDetectorConfigurable"
+            displayName="流量入口检测"/>
+        
+        <toolWindow 
+            id="Endpoint Detector"
+            secondary="true"
+            anchor="right"
+            factoryClass="org.ripple.endpoint.ui.toolwindow.EndpointDetectorToolWindowFactory"/>
+        
+        <notificationGroup 
+            id="Endpoint Detector" 
+            displayType="BALLOON"/>
+        
+        <projectService 
+            serviceImplementation="org.ripple.endpoint.plugin.service.DetectionService"/>
+        
+        <checkinHandlerFactory 
+            implementation="org.ripple.endpoint.plugin.commit.EndpointCheckinHandlerFactory"/>
+    </extensions>
+    
+    <actions>
+        <group id="EndpointDetector.Group" text="流量入口检测" popup="true">
+            <action id="EndpointDetector.DetectChanges"
+                    class="org.ripple.endpoint.plugin.action.DetectChangesAction"
+                    text="检测变更"
+                    description="检测当前变更影响的流量入口"/>
+            
+            <action id="EndpointDetector.BranchCompare"
+                    class="org.ripple.endpoint.plugin.action.BranchCompareAction"
+                    text="分支对比"
+                    description="对比两个分支的变更影响"/>
+            
+            <action id="EndpointDetector.GenerateReport"
+                    class="org.ripple.endpoint.plugin.action.GenerateReportAction"
+                    text="生成报告"
+                    description="生成检测报告"/>
+            
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </group>
+        
+        <action id="EndpointDetector.DetectChangesShortcut"
+                class="org.ripple.endpoint.plugin.action.DetectChangesAction"
+                text="检测流量入口变更">
+            <keyboard-shortcut keymap="$default" first-keystroke="meta alt D"/>
+        </action>
+    </actions>
+</idea-plugin>
