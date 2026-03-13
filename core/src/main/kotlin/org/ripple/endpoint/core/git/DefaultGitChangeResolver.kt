@@ -169,6 +169,17 @@ class DefaultGitChangeResolver : GitChangeResolver {
         if (trimmed.startsWith("package ")) return false
         
         if (trimmed == "{" || trimmed == "}") return false
+        if (trimmed == "(" || trimmed == ")") return false
+        if (trimmed == ";") return false
+        if (trimmed == ",") return false
+        
+        if (trimmed == "@Override") return false
+        if (trimmed.matches(Regex("^@SuppressWarnings\\s*\\(.*\\)"))) return false
+        if (trimmed.matches(Regex("^@Deprecated(\\s*\\(.*\\))?"))) return false
+        
+        if (trimmed.matches(Regex(".*serialVersionUID\\s*=\\s*\\d+L?\\s*;?"))) return false
+        
+        if (trimmed.matches(Regex("^[,;\\s]+$"))) return false
         
         return true
     }
